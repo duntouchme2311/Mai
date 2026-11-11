@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Sài Gòn 3D</title>
+<style>
+  :root {
+    --bg: #0f1720;
+    --panel: rgba(10, 22, 44, 0.80);
+    --panel-solid: #0e1d38;
+    --border: rgba(120, 170, 255, 0.35);
+    --text: #eef4ff;
+    --muted: #9fb3cf;
+    --accent: #ffc542;
+    --ok: #4ade80;
+    --bad: #f87171;
+    --btn: #2f6fed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #0f1720; --panel: rgba(10, 22, 44, 0.80); --text: #eef4ff; }
+  }
+  :root[data-theme="dark"] { --bg: #0f1720; --panel: rgba(10, 22, 44, 0.80); --text: #eef4ff; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; touch-action: none;
+    -webkit-user-select: none; user-select: none; }
+  canvas#game { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  #hudLeft { position: fixed; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px;
+    max-width: min(300px, calc(100vw - 150px)); pointer-events: none; }
+  #topRow { display: flex; gap: 8px; align-items: flex-start; }
+  #minimap { width: 120px; height: 120px; border-radius: 50%; border: 2px solid var(--border); flex: none; }
+  #loc { padding: 8px 10px; font-size: 12px; line-height: 1.4; }
+  #loc b { font-size: 13px; color: var(--accent); display: block; }
+  #quests { padding: 10px; font-size: 12px; }
+  #quests h3 { margin: 0 0 6px; font-size: 12px; color: var(--accent); }
+  #quests ul { margin: 0; padding: 0; list-style: none; }
+  #quests li { margin: 4px 0; display: flex; gap: 6px; align-items: center; }
+  #quests li .box { width: 13px; height: 13px; border: 1.5px solid var(--muted); border-radius: 3px; flex: none;
+    display: grid; place-items: center; font-size: 10px; }
+  #quests li.done { color: var(--ok); }
+  #quests li.done .box { border-color: var(--ok); background: var(--ok); color: #062; }
+  #wallet { position: fixed; top: 12px; right: 12px; padding: 8px 12px; font-size: 14px; font-weight: 700; }
+  #wallet span { color: var(--accent); }
+
+  #prompt { position: fixed; left: 50%; bottom: 120px; transform: translateX(-50%); padding: 8px 14px;
+    font-size: 14px; display: none; white-space: nowrap; }
+  #toast { position: fixed; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, calc(100vw - 32px));
+    padding: 12px 14px; font-size: 13px; line-height: 1.5; display: none; }
+  #toast b { color: var(--accent); }
+
+  #joy { position: fixed; left: 24px; bottom: 24px; width: 120px; height: 120px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.45); background: rgba(0,0,0,.18); display: none; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px;
+    border-radius: 50%; background: rgba(255,255,255,.85); }
+  #act { position: fixed; right: 24px; bottom: 36px; width: 72px; height: 72px; border-radius: 50%; border: none;
+    background: var(--accent); color: #2a1a00; font-weight: 800; font-size: 14px; display: none; }
+  #run { position: fixed; right: 108px; bottom: 44px; width: 56px; height: 56px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.6); background: rgba(0,0,0,.25); color: #fff; font-size: 12px; display: none; }
+  #run.on { background: var(--btn); }
+
+  #overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5,10,20,.55); padding: 16px; }
+  #overlay.hidden { display: none; }
+  .card { background: var(--panel-solid); border: 1px solid var(--border); border-radius: 16px; padding: 20px;
+    width: min(460px, 100%); max-height: calc(100vh - 32px); overflow: auto; }
+  .card h2 { margin: 0 0 8px; font-size: 20px; color: var(--accent); }
+  .card p { margin: 6px 0; font-size: 14px; line-height: 1.55; color: var(--text); }
+  .card .muted { color: var(--muted); font-size: 13px; }
+  .btn { display: inline-block; margin-top: 12px; padding: 10px 18px; border-radius: 10px; border: none;
+    background: var(--btn); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .opt { display: block; width: 100%; text-align: left; margin: 6px 0; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: rgba(255,255,255,.04); color: var(--text); font-size: 14px; cursor: pointer; }
+  .opt.right { border-color: var(--ok); background: rgba(74,222,128,.15); }
+  .opt.wrong { border-color: var(--bad); background: rgba(248,113,113,.15); }
+  .card img { width: 100%; border-radius: 10px; margin-top: 8px; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s; }
+
+  @media (max-width: 600px) {
+    #minimap { width: 92px; height: 92px; }
+    #loc, #quests { font-size: 11px; }
+    #hudLeft { max-width: calc(100vw - 120px); }
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hudLeft">
+  <div id="topRow">
+    <canvas id="minimap" width="240" height="240"></canvas>
+    <div id="loc" class="panel"><b>📍 Nhà thờ Đức Bà</b>Quận 1 · TP. Hồ Chí Minh<br><span id="clock">08:00</span> · 29°C · Nắng nhẹ</div>
+  </div>
+  <div id="quests" class="panel">
+    <h3>Nhiệm vụ: Khám phá Nhà thờ Đức Bà</h3>
+    <ul>
+      <li id="qSpots"><span class="box"></span><span class="txt">Tìm chi tiết đặc trưng (0/5)</span></li>
+      <li id="qQuiz"><span class="box"></span><span class="txt">Trả lời câu hỏi của hướng dẫn viên (0/4)</span></li>
+      <li id="qPhoto"><span class="box"></span><span class="txt">Chụp ảnh lưu niệm (0/1)</span></li>
+    </ul>
+  </div>
+</div>
+<div id="wallet" class="panel">🪙 <span id="coins">0</span> Xu</div>
+<div id="prompt" class="panel"></div>
+<div id="toast" class="panel"></div>
+<div id="joy"><div id="knob"></div></div>
+<button id="run">Chạy</button>
+<button id="act">E</button>
+<div id="flash"></div>
+
+<div id="overlay">
+  <div class="card" id="card">
+    <h2>Sài Gòn 3D: Nhà thờ Đức Bà</h2>
+    <p>Dạo quanh Nhà thờ Đức Bà, tìm cổng vào khuôn viên và 4 chi tiết kiến trúc khác (cột sáng vàng), trả lời câu hỏi của hướng dẫn viên (dấu ❓) rồi chụp ảnh lưu niệm tại điểm 📷.</p>
+    <p class="muted">Máy tính: WASD / phím mũi tên để đi, Shift để chạy, kéo chuột để xoay camera, cuộn chuột để zoom, E để tương tác.<br>Điện thoại: joystick bên trái để đi, vuốt màn hình để xoay camera, nút vàng để tương tác.</p>
+    <button class="btn" id="startBtn">Bắt đầu khám phá</button>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+const $ = (id) => document.getElementById(id);
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+
+// ---------- Renderer / scene ----------
+const canvas = $('game');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa9d4f5);
+scene.fog = new THREE.Fog(0xa9d4f5, 110, 280);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 600);
+
+scene.add(new THREE.HemisphereLight(0xdcefff, 0x5a7d3a, 0.95));
+const sun = new THREE.DirectionalLight(0xfff1d6, 1.7);
+sun.position.set(60, 95, 45);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 10, far: 260 });
+scene.add(sun);
+
+// ---------- Helpers ----------
+const mats = new Map();
+const M = (c) => { if (!mats.has(c)) mats.set(c, new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 })); return mats.get(c); };
+function mesh(geo, mat, x, y, z, parent = scene) {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z);
+  m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
+}
+const box = (w, h, d, c, x, y, z, p) => mesh(new THREE.BoxGeometry(w, h, d), typeof c === 'number' ? M(c) : c, x, y, z, p);
+function ground(w, d, c, x, z, y = 0.01) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), M(c));
+  m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.receiveShadow = true; scene.add(m); return m;
+}
+
+// Procedural brick texture (no external assets)
+const brickCanvas = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#d8b9a0'; g.fillRect(0, 0, 256, 256);
+  const rows = 16, h = 256 / rows, w = 32;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * (w / 2);
+    for (let x = -w; x < 256 + w; x += w) {
+      const v = 150 + Math.random() * 40;
+      g.fillStyle = `rgb(${v + 30},${v * 0.5},${v * 0.36})`;
+      g.fillRect(x + off + 1, r * h + 1, w - 2, h - 2);
+    }
+  }
+  return c;
+})();
+function brickMat(w, h) {
+  const t = new THREE.CanvasTexture(brickCanvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  t.repeat.set(Math.max(1, w / 6), Math.max(1, h / 6));
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.95 });
+}
+
+function labelSprite(emoji, bg = '#ffc542') {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = bg; g.beginPath(); g.arc(64, 64, 56, 0, Math.PI * 2); g.fill();
+  g.font = '72px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(emoji, 64, 70);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
+  s.scale.set(1.1, 1.1, 1.1); scene.add(s); return s;
+}
+
+// ---------- Collision ----------
+const boxesC = [];   // {x0,x1,z0,z1}
+const circlesC = []; // {x,z,r}
+const addBox = (x0, x1, z0, z1) => boxesC.push({ x0, x1, z0, z1 });
+function resolve(p, r) {
+  for (const b of boxesC) {
+    const cx = Math.max(b.x0, Math.min(p.x, b.x1)), cz = Math.max(b.z0, Math.min(p.z, b.z1));
+    const dx = p.x - cx, dz = p.z - cz, d2 = dx * dx + dz * dz;
+    if (d2 < r * r) {
+      if (d2 > 1e-6) { const d = Math.sqrt(d2); p.x = cx + dx / d * r; p.z = cz + dz / d * r; }
+      else { // centre inside the box: push out along the shortest axis
+        const opts = [[p.x - b.x0 + r, -1, 0], [b.x1 - p.x + r, 1, 0], [p.z - b.z0 + r, 0, -1], [b.z1 - p.z + r, 0, 1]];
+        opts.sort((a, c) => a[0] - c[0]); p.x += opts[0][1] * opts[0][0]; p.z += opts[0][2] * opts[0][0];
+      }
+    }
+  }
+  for (const c of circlesC) {
+    const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + r;
+    if (d < m && d > 1e-6) { p.x = c.x + dx / d * m; p.z = c.z + dz / d * m; }
+  }
+  p.x = Math.max(-40, Math.min(40, p.x)); p.z = Math.max(-80, Math.min(50, p.z));
+}
+
+// ---------- World: ground, roads, plaza ----------
+ground(400, 400, 0x6f9e48, 0, 0, 0);
+ground(400, 8, 0x55595f, 0, 20, 0.02);            // street in front
+ground(8, 400, 0x55595f, -32, 0, 0.02);           // side streets
+ground(8, 400, 0x55595f, 32, 0, 0.02);
+ground(400, 8, 0x55595f, 0, -75, 0.02);           // street behind
+for (let x = -150; x < 150; x += 6) ground(3, 0.3, 0xf2f2f2, x, 20, 0.03); // lane marks
+for (let i = -3; i <= 3; i++) ground(0.8, 7, 0xf2f2f2, i * 1.6, 20, 0.035); // zebra crossing
+ground(28, 28, 0xc4876b, 0, 2, 0.03);             // brick plaza
+ground(5, 24, 0xc4876b, 0, 36, 0.03);             // walkway from the start point
+ground(36, 52, 0x7aa852, 0, -38, 0.025);          // church grounds lawn
+
+// ---------- Cathedral ----------
+function buildCathedral() {
+  const B = (w, h, d, x, y, z) => mesh(new THREE.BoxGeometry(w, h, d), brickMat(Math.max(w, d), h), x, y, z);
+  const STONE = 0xe3d6bf, DARK = 0x2a1d17, SLATE = 0x4b5563;
+  // nave
+  B(22, 16, 40, 0, 8, -38);
+  const rg = new THREE.CylinderGeometry(13.3, 13.3, 40, 3); rg.rotateX(-Math.PI / 2);
+  const roof = mesh(rg, M(SLATE), 0, 19, -38); roof.scale.y = 0.45;
+  for (let z = -24; z >= -54; z -= 6) for (const s of [-1, 1]) box(0.2, 5, 1.6, DARK, s * 11.05, 8, z);
+  // apse
+  mesh(new THREE.CylinderGeometry(10, 10, 14, 20), brickMat(30, 14), 0, 7, -58);
+  mesh(new THREE.ConeGeometry(10.5, 7, 20), M(SLATE), 0, 17.5, -58);
+  // central facade + gable
+  B(12, 21, 2, 0, 10.5, -16.2);
+  const gg = new THREE.CylinderGeometry(6.9, 6.9, 2, 3); gg.rotateX(-Math.PI / 2);
+  mesh(gg, brickMat(12, 6), 0, 24.45, -16.2);
+  // clock
+  mesh(new THREE.CircleGeometry(1.4, 32), M(0xfafafa), 0, 24, -15.15);
+  box(0.12, 1.1, 0.05, DARK, 0, 24.45, -15.1); box(0.8, 0.12, 0.05, DARK, 0.35, 24, -15.1);
+  // rose window
+  mesh(new THREE.CircleGeometry(3, 40), M(0x22346a), 0, 14, -15.15);
+  const ring = mesh(new THREE.TorusGeometry(3, 0.35, 10, 40), M(STONE), 0, 14, -15.1);
+  for (let i = 0; i < 8; i++) { const sp = box(0.12, 5.6, 0.05, STONE, 0, 14, -15.1); sp.rotation.z = i * Math.PI / 8; }
+  // doors
+  const door = (x, w, h, z) => { box(w, h, 0.3, DARK, x, h / 2, z);
+    const a = mesh(new THREE.CircleGeometry(w / 2, 20, 0, Math.PI), M(DARK), x, h, z + 0.16); };
+  door(0, 3.2, 6, -15.1);
+  // towers
+  for (const s of [-1, 1]) {
+    const x = s * 9.5;
+    B(7, 32, 7, x, 16, -18.5);
+    B(6.2, 7, 6.2, x, 35.5, -18.5);
+    door(x, 2.4, 4.6, -14.9);
+    for (const y of [12, 20, 27]) box(1.2, 3, 0.2, DARK, x, y, -14.95);
+    box(2, 4, 0.2, DARK, x, 35.5, -15.35);
+    box(7.6, 0.6, 7.6, STONE, x, 32.2, -18.5);
+    const cone = mesh(new THREE.ConeGeometry(4.4, 18, 4), M(SLATE), x, 48, -18.5); cone.rotation.y = Math.PI / 4;
+    box(0.3, 2.4, 0.3, 0x8a7a55, x, 58.2, -18.5); box(1.4, 0.3, 0.3, 0x8a7a55, x, 58.6, -18.5);
+  }
+  for (const y of [8, 19]) box(26.4, 0.5, 0.4, STONE, 0, y, -14.85);
+  addBox(-11, 11, -58, -18); circlesC.push({ x: 0, z: -58, r: 10 }); addBox(-13, 13, -22, -15);
+}
+buildCathedral();
+
+// ---------- Fence around the grounds, with a gate in front ----------
+function buildFence() {
+  const IRON = 0x232a33, PILLAR = 0xd9c7a8;
+  const rail = (x0, z0, x1, z1) => {
+    const len = Math.hypot(x1 - x0, z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, ang = Math.atan2(x1 - x0, z1 - z0);
+    for (const y of [0.4, 1.5]) { const r = box(0.08, 0.08, len, IRON, cx, y, cz); r.rotation.y = ang; }
+    const n = Math.floor(len / 0.5);
+    for (let i = 0; i <= n; i++) { const t = i / n; box(0.05, 1.6, 0.05, IRON, x0 + (x1 - x0) * t, 0.8, z0 + (z1 - z0) * t); }
+  };
+  rail(-18, -12, -3, -12); rail(3, -12, 18, -12);
+  rail(-18, -12, -18, -64); rail(18, -12, 18, -64); rail(-18, -64, 18, -64);
+  for (const [x, z] of [[-18, -12], [18, -12], [-18, -64], [18, -64], [-3, -12], [3, -12]]) box(0.9, 2.4, 0.9, PILLAR, x, 1.2, z);
+  addBox(-18.3, -3, -12.3, -11.7); addBox(3, 18.3, -12.3, -11.7);
+  addBox(-18.3, -17.7, -64, -12); addBox(17.7, 18.3, -64, -12); addBox(-18.3, 18.3, -64.3, -63.7);
+}
+buildFence();
+
+// ---------- Statue of Our Lady of Peace + flower bed ----------
+(() => {
+  const z = 5;
+  mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.35, 40), M(0x4f8a3a), 0, 0.17, z);
+  const fl = [0xe23b3b, 0xffd23f, 0xff8fb1, 0xffffff];
+  for (let i = 0; i < 70; i++) {
+    const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 2.3;
+    mesh(new THREE.SphereGeometry(0.22, 6, 5), M(fl[i % 4]), Math.cos(a) * r, 0.45, z + Math.sin(a) * r);
+  }
+  box(1.8, 3, 1.8, 0xd9c7a8, 0, 1.8, z);
+  mesh(new THREE.CylinderGeometry(0.45, 0.85, 3.2, 16), M(0xf3f1ea), 0, 4.9, z);
+  mesh(new THREE.SphereGeometry(0.42, 16, 12), M(0xf3f1ea), 0, 6.85, z);
+  circlesC.push({ x: 0, z, r: 4.6 });
+})();
+
+// ---------- City blocks + trees ----------
+const rand = (a, b) => a + Math.random() * (b - a);
+const bColors = [0xe8e2d0, 0xc9d6df, 0xf1c27d, 0xd7ccc8, 0xb0bec5, 0xffe0b2, 0xcfd8dc];
+for (let x = -140; x <= 140; x += 16) for (let z = -140; z <= 140; z += 16) {
+  const inside = Math.abs(x) < 42 && z > -86 && z < 30;
+  if (inside || Math.abs(x - 32) < 8 || Math.abs(x + 32) < 8 || Math.abs(z - 20) < 8 || Math.abs(z + 75) < 8) continue;
+  const h = rand(8, 34);
+  box(rand(9, 13), h, rand(9, 13), bColors[(Math.random() * bColors.length) | 0], x, h / 2, z);
+}
+function palm(x, z) {
+  const h = rand(6, 9);
+  const t = mesh(new THREE.CylinderGeometry(0.18, 0.3, h, 6), M(0x8d6e4e), x, h / 2, z); t.rotation.z = rand(-0.08, 0.08);
+  for (let i = 0; i < 7; i++) {
+    const leaf = box(0.25, 0.08, 3.4, 0x3f8f3a, x, h, z);
+    leaf.rotation.y = i / 7 * Math.PI * 2; leaf.rotation.x = 0.45;
+    leaf.position.x += Math.sin(leaf.rotation.y) * 1.4; leaf.position.z += Math.cos(leaf.rotation.y) * 1.4; leaf.position.y -= 0.5;
+  }
+  circlesC.push({ x, z, r: 0.4 });
+}
+function roundTree(x, z) {
+  const h = rand(2.5, 4);
+  mesh(new THREE.CylinderGeometry(0.25, 0.35, h, 6), M(0x6d4c35), x, h / 2, z);
+  const s = rand(2.2, 3.4);
+  mesh(new THREE.IcosahedronGeometry(s, 1), M([0x2f7d32, 0x3a8f3e, 0x2e6b2f][(Math.random() * 3) | 0]), x, h + s * 0.8, z);
+  circlesC.push({ x, z, r: 0.5 });
+}
+let planted = 0;
+while (planted < 70) {
+  const x = rand(-38, 38), z = rand(-80, 48);
+  const blocked = (Math.abs(x) < 20 && z > -66 && z < 18) || Math.abs(z - 20) < 6 || Math.abs(Math.abs(x) - 32) < 6 ||
+    Math.abs(z + 75) < 6 || (Math.abs(x) < 5 && z > 18);
+  if (blocked) continue;
+  (Math.random() < 0.55 ? palm : roundTree)(x, z); planted++;
+}
+for (const [x, z] of [[-15, -30], [15, -30], [-15, -48], [15, -48]]) palm(x, z);
+
+// ---------- Characters ----------
+function person(shirt, pants = 0x2b3a55, skin = 0xe0b48f) {
+  const g = new THREE.Group();
+  const legs = [];
+  for (const s of [-1, 1]) { const l = box(0.22, 0.85, 0.25, pants, s * 0.14, 0.43, 0, g); legs.push(l); }
+  box(0.6, 0.75, 0.32, shirt, 0, 1.25, 0, g);
+  mesh(new THREE.SphereGeometry(0.2, 12, 10), M(skin), 0, 1.82, 0, g);
+  box(0.42, 0.12, 0.42, 0x2b1d14, 0, 2.0, 0, g); // hair
+  g.userData.legs = legs; scene.add(g); return g;
+}
+const player = person(0x2f6fed, 0x37474f);
+box(0.45, 0.55, 0.22, 0x5d4037, 0, 1.3, -0.27, player); // backpack
+player.position.set(0, 0, 38);
+
+const guide = person(0xffc542, 0x1e2a3a);
+guide.position.set(8, 0, -2); guide.rotation.y = -Math.PI / 2;
+const guideTag = labelSprite('❓');
+guideTag.position.set(8, 2.8, -2);
+circlesC.push({ x: 8, z: -2, r: 0.5 });
+
+const npcs = [];
+const shirts = [0xe53935, 0xffffff, 0x43a047, 0x8e24aa, 0xfb8c00, 0x00897b, 0x6d4c41, 0xf06292];
+function npcTarget() {
+  for (;;) { const x = rand(-36, 36), z = rand(-9, 46); if (Math.hypot(x, z - 5) > 6) return new THREE.Vector3(x, 0, z); }
+}
+for (let i = 0; i < 24; i++) {
+  const g = person(shirts[i % shirts.length], [0x263238, 0x3e2723, 0x1a237e][i % 3]);
+  g.position.copy(npcTarget());
+  npcs.push({ g, target: npcTarget(), speed: rand(0.9, 1.5), wait: 0, phase: Math.random() * 6 });
+}
+
+// ---------- Points of interest ----------
+const SPOTS = [
+  { name: 'Cổng vào khuôn viên', x: 0, z: -10.5,
+    fact: 'Đây rồi! Khuôn viên nhà thờ có hàng rào sắt bao quanh, lối vào chính nằm thẳng trục với tượng Đức Mẹ. Bạn vừa tìm ra "cái cổng" mà nhiều người dân Sài Gòn chỉ đi vòng bên ngoài.' },
+  { name: 'Tượng Đức Mẹ Hòa Bình', x: 0, z: 11.5,
+    fact: 'Tượng Đức Mẹ Hòa Bình bằng đá cẩm thạch trắng được tạc tại Ý và dựng ở quảng trường trước nhà thờ năm 1959.' },
+  { name: 'Gạch không tô trát', x: -15.5, z: -13.5,
+    fact: 'Mặt ngoài nhà thờ để lộ gạch đỏ, không tô vữa. Gạch được đưa sang từ Marseille (Pháp) và vẫn giữ màu đỏ tươi sau hơn 140 năm.' },
+  { name: 'Hai tháp chuông', x: 15.5, z: -13.5,
+    fact: 'Hai tháp chuông cao khoảng 57 m. Năm 1895 hai tháp được gắn thêm mái chóp và thánh giá, nâng tổng chiều cao lên khoảng 60 m.' },
+  { name: 'Cửa sổ hoa hồng', x: 4.5, z: -13.5,
+    fact: 'Nhà thờ do kiến trúc sư J. Bourard thiết kế, khởi công năm 1877 và khánh thành năm 1880. Ô cửa sổ tròn "hoa hồng" là chi tiết quen thuộc của kiến trúc nhà thờ phương Tây.' },
+];
+for (const s of SPOTS) {
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 12, 20, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+  beam.position.set(s.x, 6, s.z); scene.add(beam);
+  const ringM = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.2, 32), new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.8 }));
+  ringM.rotation.x = -Math.PI / 2; ringM.position.set(s.x, 0.06, s.z); scene.add(ringM);
+  Object.assign(s, { beam, ring: ringM, found: false });
+}
+const PHOTO = { x: 0, z: 30 };
+{
+  const r = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.5, 32), new THREE.MeshBasicMaterial({ color: 0x4fc3f7 }));
+  r.rotation.x = -Math.PI / 2; r.position.set(PHOTO.x, 0.06, PHOTO.z); scene.add(r);
+  PHOTO.tag = labelSprite('📷', '#4fc3f7'); PHOTO.tag.position.set(PHOTO.x, 3.6, PHOTO.z);
+}
+
+const QUIZ = [
+  { q: 'Nhà thờ Đức Bà Sài Gòn được khánh thành vào năm nào?', a: ['1863', '1880', '1902', '1959'], c: 1 },
+  { q: 'Gạch xây nhà thờ được mang sang từ thành phố nào?', a: ['Lyon', 'Paris', 'Marseille', 'Bordeaux'], c: 2 },
+  { q: 'Tượng Đức Mẹ Hòa Bình được dựng ở quảng trường vào năm nào?', a: ['1880', '1945', '1959', '1975'], c: 2 },
+  { q: 'Chiều cao hai tháp chuông (tính cả thánh giá) vào khoảng?', a: ['30 m', '45 m', '60 m', '90 m'], c: 2 },
+];
+
+// ---------- Game state ----------
+const state = { coins: 0, quizOk: new Set(), photo: false, playing: false, modal: false, done: false };
+function addCoins(n) { state.coins += n; $('coins').textContent = state.coins.toLocaleString('vi-VN'); }
+function setQuest(id, text, done) {
+  const li = $(id); li.querySelector('.txt').textContent = text;
+  li.classList.toggle('done', done); li.querySelector('.box').textContent = done ? '✓' : '';
+}
+function refreshQuests() {
+  const f = SPOTS.filter((s) => s.found).length;
+  setQuest('qSpots', `Tìm chi tiết đặc trưng (${f}/${SPOTS.length})`, f === SPOTS.length);
+  setQuest('qQuiz', `Trả lời câu hỏi của hướng dẫn viên (${state.quizOk.size}/${QUIZ.length})`, state.quizOk.size === QUIZ.length);
+  setQuest('qPhoto', `Chụp ảnh lưu niệm (${state.photo ? 1 : 0}/1)`, state.photo);
+  if (!state.done && f === SPOTS.length && state.quizOk.size === QUIZ.length && state.photo) {
+    state.done = true;
+    state.pendingDone = true; // shown once the current card (quiz/photo) is closed
+    setTimeout(() => { if (!state.modal) showDone(); }, 800);
+  }
+}
+
+let toastTimer;
+function toast(html, ms = 7000) {
+  const t = $('toast'); t.innerHTML = html; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.style.display = 'none'), ms);
+}
+function openCard(html) {
+  $('card').innerHTML = html; $('overlay').classList.remove('hidden'); state.modal = true;
+  $('card').querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeCard));
+}
+function closeCard() {
+  $('overlay').classList.add('hidden'); state.modal = false;
+  if (state.pendingDone) setTimeout(showDone, 300);
+}
+function showDone() {
+  if (!state.pendingDone) return; state.pendingDone = false;
+  openCard(`<h2>🎉 Hoàn thành!</h2><p>Bạn đã khám phá xong Nhà thờ Đức Bà và nhận tổng cộng <b>${state.coins.toLocaleString('vi-VN')} Xu</b>.</p><p class="muted">Bạn có thể tiếp tục dạo quanh khu vực.</p><button class="btn" data-close>Tiếp tục</button>`);
+}
+
+function openQuiz() {
+  const left = QUIZ.map((q, i) => i).filter((i) => !state.quizOk.has(i));
+  if (!left.length) { toast('<b>Hướng dẫn viên:</b> Bạn đã trả lời đúng hết rồi. Nhớ chụp một tấm ảnh lưu niệm nhé!'); return; }
+  let k = 0;
+  const show = () => {
+    const i = left[k], Q = QUIZ[i];
+    openCard(`<h2>Câu hỏi ${state.quizOk.size + 1}/${QUIZ.length}</h2><p>${Q.q}</p>` +
+      Q.a.map((a, j) => `<button class="opt" data-j="${j}">${a}</button>`).join('') +
+      `<p class="muted">Gợi ý: các cột sáng vàng quanh nhà thờ chứa đáp án.</p>`);
+    $('card').querySelectorAll('.opt').forEach((b) => b.addEventListener('click', () => {
+      const j = +b.dataset.j, ok = j === Q.c;
+      $('card').querySelectorAll('.opt').forEach((o) => (o.disabled = true));
+      b.classList.add(ok ? 'right' : 'wrong');
+      if (ok) { state.quizOk.add(i); addCoins(200); refreshQuests(); }
+      const next = document.createElement('button'); next.className = 'btn';
+      k++;
+      next.textContent = k < left.length ? 'Câu tiếp theo' : 'Đóng';
+      next.onclick = () => (k < left.length ? show() : closeCard());
+      const msg = document.createElement('p');
+      msg.innerHTML = ok ? '✅ Chính xác! +200 Xu' : '❌ Chưa đúng. Khám phá thêm rồi quay lại hỏi tiếp nhé.';
+      $('card').append(msg, next);
+    }));
+  };
+  show();
+}
+
+function takePhoto() {
+  player.rotation.y = Math.PI; cam.yaw = 0; cam.pitch = 0.15; cam.dist = 10;
+  PHOTO.tag.visible = false; updateCamera(); camera.lookAt(0, 20, -18); renderer.render(scene, camera); PHOTO.tag.visible = true;
+  const url = renderer.domElement.toDataURL('image/jpeg', 0.9);
+  const f = $('flash'); f.style.transition = 'none'; f.style.opacity = '1';
+  requestAnimationFrame(() => { f.style.transition = 'opacity .5s'; f.style.opacity = '0'; });
+  const first = !state.photo;
+  if (first) { state.photo = true; addCoins(300); refreshQuests(); }
+  openCard(`<h2>📷 Ảnh lưu niệm</h2><img src="${url}" alt="Ảnh chụp trước Nhà thờ Đức Bà">` +
+    `<p>${first ? '+300 Xu cho tấm ảnh đầu tiên!' : 'Đã lưu thêm một tấm ảnh.'}</p>` +
+    `<a class="btn" href="${url}" download="nha-tho-duc-ba.jpg">Tải ảnh</a> <button class="btn" data-close>Đóng</button>`);
+}
+
+// ---------- Input ----------
+const keys = {};
+addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'KeyE') interact(); });
+addEventListener('keyup', (e) => (keys[e.code] = false));
+const cam = { yaw: 0, pitch: 0.32, dist: 8 };
+let drag = null;
+canvas.addEventListener('pointerdown', (e) => { drag = { id: e.pointerId, x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag || drag.id !== e.pointerId) return;
+  cam.yaw -= (e.clientX - drag.x) * 0.006;
+  cam.pitch = Math.max(0.05, Math.min(1.2, cam.pitch + (e.clientY - drag.y) * 0.004));
+  drag.x = e.clientX; drag.y = e.clientY;
+});
+const endDrag = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', (e) => { cam.dist = Math.max(4, Math.min(20, cam.dist + e.deltaY * 0.01)); }, { passive: true });
+
+const joy = { x: 0, y: 0, id: null };
+let runToggle = false;
+if (isTouch) {
+  $('joy').style.display = 'block'; $('act').style.display = 'block'; $('run').style.display = 'block';
+  const J = $('joy'), K = $('knob');
+  const setJ = (e) => {
+    const r = J.getBoundingClientRect(); let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const m = Math.hypot(dx, dy), max = r.width / 2; if (m > max) { dx *= max / m; dy *= max / m; }
+    K.style.transform = `translate(${dx}px,${dy}px)`; joy.x = dx / max; joy.y = dy / max;
+  };
+  J.addEventListener('pointerdown', (e) => { joy.id = e.pointerId; J.setPointerCapture(e.pointerId); setJ(e); });
+  J.addEventListener('pointermove', (e) => { if (e.pointerId === joy.id) setJ(e); });
+  const rel = (e) => { if (e.pointerId === joy.id) { joy.id = null; joy.x = joy.y = 0; K.style.transform = ''; } };
+  J.addEventListener('pointerup', rel); J.addEventListener('pointercancel', rel);
+  $('act').addEventListener('click', interact);
+  $('run').addEventListener('click', () => { runToggle = !runToggle; $('run').classList.toggle('on', runToggle); });
+}
+
+let nearby = null;
+function interact() {
+  if (!state.playing || state.modal || !nearby) return;
+  if (nearby === 'guide') openQuiz(); else if (nearby === 'photo') takePhoto();
+}
+
+$('startBtn').addEventListener('click', () => { closeCard(); state.playing = true;
+  toast('<b>Gợi ý:</b> Đi theo lối gạch đỏ về phía nhà thờ. Cột sáng vàng là chi tiết cần tìm, còn cổng vào khuôn viên nằm phía sau tượng Đức Mẹ.', 8000); });
+
+// ---------- Camera ----------
+const camTarget = new THREE.Vector3();
+function updateCamera() {
+  camTarget.set(player.position.x, 1.6, player.position.z);
+  const cp = Math.cos(cam.pitch);
+  camera.position.set(camTarget.x + Math.sin(cam.yaw) * cp * cam.dist, camTarget.y + Math.sin(cam.pitch) * cam.dist,
+    camTarget.z + Math.cos(cam.yaw) * cp * cam.dist);
+  camera.lookAt(camTarget);
+}
+
+// ---------- Minimap ----------
+const mm = $('minimap').getContext('2d');
+function drawMinimap() {
+  const W = 240, R = 120, s = R / 45, px = player.position.x, pz = player.position.z;
+  const X = (x) => R + (x - px) * s, Z = (z) => R + (z - pz) * s;
+  mm.save(); mm.clearRect(0, 0, W, W);
+  mm.beginPath(); mm.arc(R, R, R, 0, Math.PI * 2); mm.clip();
+  mm.fillStyle = '#6f9e48'; mm.fillRect(0, 0, W, W);
+  mm.fillStyle = '#d0d4da';
+  mm.fillRect(0, Z(16), W, 8 * s); mm.fillRect(0, Z(-79), W, 8 * s);
+  mm.fillRect(X(-36), 0, 8 * s, W); mm.fillRect(X(28), 0, 8 * s, W);
+  mm.fillStyle = '#c4876b'; mm.fillRect(X(-14), Z(-12), 28 * s, 28 * s);
+  mm.strokeStyle = '#1b1f24'; mm.lineWidth = 2; mm.strokeRect(X(-18), Z(-64), 36 * s, 52 * s);
+  mm.fillStyle = '#9c4a33'; mm.fillRect(X(-11), Z(-58), 22 * s, 40 * s); mm.fillRect(X(-13), Z(-22), 26 * s, 7 * s);
+  mm.beginPath(); mm.arc(X(0), Z(-58), 10 * s, 0, Math.PI * 2); mm.fill();
+  for (const sp of SPOTS) { mm.fillStyle = sp.found ? '#4ade80' : '#ffd34d'; mm.beginPath(); mm.arc(X(sp.x), Z(sp.z), 5, 0, Math.PI * 2); mm.fill(); }
+  mm.fillStyle = '#4fc3f7'; mm.beginPath(); mm.arc(X(PHOTO.x), Z(PHOTO.z), 5, 0, Math.PI * 2); mm.fill();
+  mm.fillStyle = '#ffffff'; mm.beginPath(); mm.arc(X(8), Z(-2), 5, 0, Math.PI * 2); mm.fill();
+  mm.translate(R, R); mm.rotate(Math.PI - player.rotation.y);
+  mm.fillStyle = '#ff3d3d'; mm.beginPath(); mm.moveTo(0, -11); mm.lineTo(8, 8); mm.lineTo(0, 4); mm.lineTo(-8, 8); mm.closePath(); mm.fill();
+  mm.restore();
+  mm.fillStyle = '#fff'; mm.font = 'bold 22px sans-serif'; mm.textAlign = 'center'; mm.fillText('N', R, 24);
+}
+
+// ---------- Loop ----------
+const clock = new THREE.Clock();
+let gameMin = 8 * 60, walkT = 0;
+const tmp = new THREE.Vector3();
+function animateWalk(g, speed, t) {
+  const [l, r] = g.userData.legs, a = speed > 0.05 ? Math.sin(t) * 0.6 : 0;
+  l.rotation.x = a; r.rotation.x = -a;
+}
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+
+  if (state.playing && !state.modal) {
+    let f = 0, sd = 0;
+    if (keys.KeyW || keys.ArrowUp) f += 1; if (keys.KeyS || keys.ArrowDown) f -= 1;
+    if (keys.KeyD || keys.ArrowRight) sd += 1; if (keys.KeyA || keys.ArrowLeft) sd -= 1;
+    f -= joy.y; sd += joy.x;
+    const mag = Math.min(1, Math.hypot(f, sd));
+    if (mag > 0.08) {
+      const run = keys.ShiftLeft || keys.ShiftRight || runToggle, sp = (run ? 9 : 4.5) * mag;
+      const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw), rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
+      let dx = fx * f + rx * sd, dz = fz * f + rz * sd; const n = Math.hypot(dx, dz); dx /= n; dz /= n;
+      player.position.x += dx * sp * dt; player.position.z += dz * sp * dt;
+      resolve(player.position, 0.45);
+      const targetRot = Math.atan2(dx, dz);
+      let diff = targetRot - player.rotation.y; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      player.rotation.y += diff * Math.min(1, dt * 12);
+      walkT += dt * sp * 2.2; animateWalk(player, sp, walkT);
+    } else animateWalk(player, 0, 0);
+    gameMin += dt; // 1 real second = 1 in-game minute
+  }
+
+  // NPCs wander
+  for (const n of npcs) {
+    if (n.wait > 0) { n.wait -= dt; animateWalk(n.g, 0, 0); continue; }
+    tmp.subVectors(n.target, n.g.position); tmp.y = 0; const d = tmp.length();
+    if (d < 0.5) { n.target = npcTarget(); n.wait = rand(0, 4); continue; }
+    tmp.multiplyScalar(n.speed * dt / d); n.g.position.add(tmp);
+    n.g.rotation.y = Math.atan2(tmp.x, tmp.z); n.phase += dt * n.speed * 4; animateWalk(n.g, 1, n.phase);
+  }
+
+  // points of interest
+  const p = player.position;
+  for (const s of SPOTS) {
+    s.beam.material.opacity = s.found ? 0 : 0.25 + Math.sin(t * 3) * 0.1;
+    if (!s.found && Math.hypot(p.x - s.x, p.z - s.z) < 2.4) {
+      s.found = true; s.ring.material.color.set(0x4ade80); addCoins(100); refreshQuests();
+      toast(`<b>✨ ${s.name}</b> (+100 Xu)<br>${s.fact}`);
+    }
+  }
+  guideTag.position.y = 2.8 + Math.sin(t * 2) * 0.12;
+  nearby = Math.hypot(p.x - 8, p.z + 2) < 3.2 ? 'guide' : Math.hypot(p.x - PHOTO.x, p.z - PHOTO.z) < 2.2 ? 'photo' : null;
+  const pr = $('prompt');
+  if (nearby && state.playing && !state.modal) {
+    pr.style.display = 'block';
+    pr.textContent = (isTouch ? 'Bấm nút vàng' : 'Nhấn E') + (nearby === 'guide' ? ' để nói chuyện với hướng dẫn viên' : ' để chụp ảnh lưu niệm');
+  } else pr.style.display = 'none';
+
+  const hh = String(Math.floor(gameMin / 60) % 24).padStart(2, '0'), mi = String(Math.floor(gameMin % 60)).padStart(2, '0');
+  $('clock').textContent = `${hh}:${mi}`;
+
+  updateCamera();
+  renderer.render(scene, camera);
+  drawMinimap();
+  requestAnimationFrame(tick);
+}
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+});
+player.rotation.y = Math.PI;
+refreshQuests();
+window.__game = { player, state, SPOTS }; // debug/test hook
+tick();
+</script>
+</body>
+</html>
