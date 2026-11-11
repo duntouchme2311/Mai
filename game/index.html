@@ -481,6 +481,7 @@ function takePhoto() {
   if (first) { state.photo = true; addCoins(300); refreshQuests(); }
   openCard(`<h2>📷 Ảnh lưu niệm</h2><img src="${url}" alt="Ảnh chụp trước Nhà thờ Đức Bà">` +
     `<p>${first ? '+300 Xu cho tấm ảnh đầu tiên!' : 'Đã lưu thêm một tấm ảnh.'}</p>` +
+    `<p class="muted">Nếu nút Tải ảnh không hoạt động, hãy nhấn giữ (hoặc chuột phải) vào ảnh để lưu.</p>` +
     `<a class="btn" href="${url}" download="nha-tho-duc-ba.jpg">Tải ảnh</a> <button class="btn" data-close>Đóng</button>`);
 }
 
