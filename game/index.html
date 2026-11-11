@@ -333,7 +333,7 @@ const SX = statuePoi ? statuePoi.p[0] : 0, SZ = statuePoi ? statuePoi.p[1] : 42;
     for (let i = 0; i < n; i++) { rp.push(p[i * 2], h, p[i * 2 + 1]); rc.push(col.r * 0.72, col.g * 0.72, col.b * 0.72); }
     for (const f of triangulate(p)) ri.push(rb + f[0], rb + f[1], rb + f[2]);
     const xs = p.filter((_, i) => i % 2 === 0), zs = p.filter((_, i) => i % 2 === 1);
-    blds.push({ p, n: b.n, x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs), cx: mx, cz: mz });
+    blds.push({ p, n: b.n, sgn, h, x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs), cx: mx, cz: mz });
   }
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#5d7088'; g.fillRect(18, 12, 28, 36);
@@ -470,6 +470,84 @@ ground(8, 10, 0xc4876b, 0, 5, 0.22);              // path from the gate to the m
     circlesC.push({ x, z, r: 0.45 });
   });
   trunk.castShadow = crown.castShadow = true; scene.add(trunk, crown);
+})();
+
+// ---------- Signage from map data: shop-front names, building names, street-name plates ----------
+// Names are drawn as plain text into one texture atlas (no logos), so all signs cost a single draw call.
+(function buildSigns() {
+  const segs = [];
+  for (const r of drive) for (let i = 0; i < r.p.length - 2; i += 2) segs.push([r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3]]);
+  const segDist = (x, z, ax, az, bx, bz) => {
+    const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2));
+    return Math.hypot(x - ax - ex * t, z - az - ez * t);
+  };
+  const roadDist = (x, z) => { let d = 1e9; for (const g of segs) d = Math.min(d, segDist(x, z, g[0], g[1], g[2], g[3])); return d; };
+  const COLS = 5, CW = 384, CH = 64, ROWS = 64, cv = document.createElement('canvas'); cv.width = COLS * CW; cv.height = ROWS * CH;
+  const g = cv.getContext('2d'); g.textAlign = 'center'; g.textBaseline = 'middle';
+  const STYLE = { cafe: ['#5d4037', '#fff'], food: ['#b3261e', '#fff'], bank: ['#173f8a', '#fff'], hotel: ['#263238', '#ffd54f'],
+    shop: ['#1b6e3c', '#fff'], bld: ['#f3ecd9', '#2b2b2b'], street: ['#1a4fa0', '#fff'] };
+  let cell = 0; const pos = [], uv = [], idx = [];
+  function quad(text, kind, cx, cy, cz, rx, rz, w) { // (rx, rz): the reader's left-to-right direction
+    if (cell >= COLS * ROWS) return;
+    const col = cell % COLS, row = (cell / COLS) | 0, x0 = col * CW, y0 = row * CH, [bg, fg] = STYLE[kind]; cell++;
+    g.fillStyle = bg; g.fillRect(x0, y0, CW, CH); g.strokeStyle = fg; g.lineWidth = 4; g.strokeRect(x0 + 4, y0 + 4, CW - 8, CH - 8);
+    let fs = 40; g.fillStyle = fg;
+    do { g.font = `bold ${fs}px system-ui, "Segoe UI", Roboto, Arial, sans-serif`; fs -= 2; } while (g.measureText(text).width > CW - 28 && fs > 12);
+    g.fillText(text, x0 + CW / 2, y0 + CH / 2 + 2);
+    const h = w * CH / CW / 2, b = pos.length / 3, u0 = col / COLS, u1 = (col + 1) / COLS, v1 = 1 - y0 / cv.height, v0 = 1 - (y0 + CH) / cv.height;
+    pos.push(cx - rx * w / 2, cy - h, cz - rz * w / 2, cx + rx * w / 2, cy - h, cz + rz * w / 2, cx + rx * w / 2, cy + h, cz + rz * w / 2, cx - rx * w / 2, cy + h, cz - rz * w / 2);
+    uv.push(u0, v0, u1, v0, u1, v1, u0, v1); idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+  }
+  // pick the wall of building b that best faces the street near point (x, z); returns wall midpoint + outward normal
+  function wallFor(b, x, z) {
+    let best = null; const q = b.p;
+    for (let i = 0, j = q.length - 2; i < q.length; j = i, i += 2) {
+      const ax = q[j], az = q[j + 1], bx = q[i], bz = q[i + 1], l = Math.hypot(bx - ax, bz - az); if (l < 2.5) continue;
+      const mx = (ax + bx) / 2, mz = (az + bz) / 2, sc = segDist(x, z, ax, az, bx, bz) + 0.6 * roadDist(mx, mz);
+      if (!best || sc < best.sc) { const nx = (bz - az) / l * b.sgn, nz = -(bx - ax) / l * b.sgn;
+        const t = Math.max(0.2, Math.min(0.8, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / (l * l)));
+        best = { sc, l, nx, nz, x: ax + (bx - ax) * t, z: az + (bz - az) * t }; }
+    }
+    return best;
+  }
+  const placed = [];
+  const hang = (text, kind, wl, y, w) => {
+    while (placed.some((q) => Math.hypot(q[0] - wl.x, q[2] - wl.z) < w * 0.9 && Math.abs(q[1] - y) < 0.9)) y += 1.0;
+    placed.push([wl.x, y, wl.z]);
+    quad(text, kind, wl.x + wl.nx * 0.12, y, wl.z + wl.nz * 0.12, wl.nz, -wl.nx, w);
+  };
+  const near = (a) => Math.hypot(a[0] - MAP.center[0], a[1] - MAP.center[1]);
+  const seen = new Set();
+  for (const sg of [...MAP.signs].sort((a, b) => Math.hypot(...a.p) - Math.hypot(...b.p))) {   // shop fronts, nearest first
+    const [x, z] = sg.p; if (near(sg.p) > 360) continue;
+    let bb = null, bd = 25;
+    for (const b of blds) { const d = Math.hypot(Math.max(b.x0 - x, 0, x - b.x1), Math.max(b.z0 - z, 0, z - b.z1)); if (d < bd) { bd = d; bb = b; } }
+    const wl = bb && wallFor(bb, x, z); if (!wl) continue;
+    seen.add(sg.n.toLowerCase()); hang(sg.n.toUpperCase(), sg.c, wl, 3.4, Math.min(5, Math.max(3, wl.l * 0.8)));
+  }
+  for (const b of blds) {                                                                           // named buildings
+    if (!b.n || seen.has(b.n.toLowerCase()) || near([b.cx, b.cz]) > 360) continue;
+    const wl = wallFor(b, b.cx, b.cz); if (wl) hang(b.n, 'bld', wl, Math.min(6.2, Math.max(3.6, b.h - 1.5)), Math.min(8, Math.max(4, wl.l * 0.7)));
+  }
+  const poles = [], plates = new Set();                                                             // street-name plates
+  for (const r of MAP.roads) {
+    if (!r.n || !RW[r.k]) continue;
+    for (let i = 0; i < r.p.length - 2; i += 2) {
+      const ax = r.p[i], az = r.p[i + 1], dx = r.p[i + 2] - ax, dz = r.p[i + 3] - az, l = Math.hypot(dx, dz); if (l < 18) continue;
+      const mx = ax + dx / 2, mz = az + dz / 2, key = r.n + Math.round(mx / 110) + ',' + Math.round(mz / 110);
+      if (plates.has(key) || near([mx, mz]) > 360) continue;
+      const off = RW[r.k] / 2 + 1.3, px = mx - dz / l * off, pz = mz + dx / l * off; if (inBuilding(px, pz)) continue;
+      plates.add(key); poles.push([px, pz]);
+      quad(r.n, 'street', px, 3.0, pz, dx / l, dz / l, 2.6); quad(r.n, 'street', px, 3.0, pz, -dx / l, -dz / l, 2.6);
+      break;
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const m = geoMesh(pos, idx, new THREE.MeshBasicMaterial({ map: tex }), { uv }); m.receiveShadow = false;
+  const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, 3.3, 6), M(0x9aa0a6), poles.length), d = new THREE.Object3D();
+  poles.forEach(([x, z], i) => { d.position.set(x, 1.65, z); d.updateMatrix(); im.setMatrixAt(i, d.matrix); circlesC.push({ x, z, r: 0.15 }); });
+  scene.add(im);
+  window.__signs = { count: cell, poles: poles.length };
 })();
 
 // ---------- Characters ----------

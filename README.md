@@ -32,6 +32,7 @@ python3 tools/build_map.py data/osm-raw.osm game/map-data.js
 - **Đúng thực tế:** vị trí và mặt bằng nhà, tim đường, công viên, vị trí tượng Đức Mẹ, hướng Bắc trên minimap.
 - **Ước lượng:** chiều cao nhà (chỉ 52/303 nhà có số liệu, còn lại gán ngẫu nhiên 7–20 m), bề rộng đường theo loại đường, cây xanh dọc đường, màu sắc và cửa sổ.
 - **Địa điểm nhạy cảm:** `tools/build_map.py` có danh sách từ khóa (`SENSITIVE`) để bỏ tên và loại công trình của cơ quan nhà nước, ngoại giao, tư pháp, quân sự, chính trị. Các công trình này chỉ hiện là khối nhà vô danh, không có nhiệm vụ hay thông tin. Bộ lọc cố ý rộng tay; cần rà lại danh sách tên được giữ mỗi khi thêm khu vực mới.
+- **Biển hiệu:** tên cửa hàng, quán, ngân hàng (137 điểm), tên tòa nhà và biển tên đường lấy từ OpenStreetMap, vẽ bằng chữ thuần (không dùng logo để tránh vấn đề nhãn hiệu). Dữ liệu có thể đã cũ so với thực tế.
 - **Giấy phép:** dữ liệu © OpenStreetMap contributors, giấy phép ODbL; game đã hiện dòng ghi nguồn ở cuối màn hình và phải giữ dòng này.
 
 ## Những gì đã có
