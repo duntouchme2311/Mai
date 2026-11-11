@@ -77,6 +77,8 @@
   .opt.right { border-color: var(--ok); background: rgba(74,222,128,.15); }
   .opt.wrong { border-color: var(--bad); background: rgba(248,113,113,.15); }
   .card img { width: 100%; border-radius: 10px; margin-top: 8px; }
+  #attr { position: fixed; left: 50%; bottom: 4px; transform: translateX(-50%); font-size: 10px; color: var(--text);
+    opacity: .75; text-shadow: 0 1px 2px #000; pointer-events: none; white-space: nowrap; }
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity .35s; }
 
   @media (max-width: 600px) {
@@ -85,6 +87,7 @@
     #hudLeft { max-width: calc(100vw - 120px); }
   }
 </style>
+<script src="map-data.js"></script>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
 </script>
@@ -95,7 +98,7 @@
 <div id="hudLeft">
   <div id="topRow">
     <canvas id="minimap" width="240" height="240"></canvas>
-    <div id="loc" class="panel"><b>📍 Nhà thờ Đức Bà</b>Quận 1 · TP. Hồ Chí Minh<br><span id="clock">08:00</span> · 29°C · Nắng nhẹ</div>
+    <div id="loc" class="panel"><b id="place">📍 Công xã Paris</b>Quận 1 · TP. Hồ Chí Minh<br><span id="clock">08:00</span> · 29°C · Nắng nhẹ</div>
   </div>
   <div id="quests" class="panel">
     <h3>Nhiệm vụ: Khám phá Nhà thờ Đức Bà</h3>
@@ -113,11 +116,13 @@
 <button id="run">Chạy</button>
 <button id="act">E</button>
 <div id="flash"></div>
+<div id="attr">Bản đồ © OpenStreetMap contributors</div>
 
 <div id="overlay">
   <div class="card" id="card">
     <h2>Sài Gòn 3D: Nhà thờ Đức Bà</h2>
-    <p>Dạo quanh Nhà thờ Đức Bà, tìm cổng vào khuôn viên và 4 chi tiết kiến trúc khác (cột sáng vàng), trả lời câu hỏi của hướng dẫn viên (dấu ❓) rồi chụp ảnh lưu niệm tại điểm 📷.</p>
+    <p>Dạo quanh Nhà thờ Đức Bà, tìm cổng vào khuôn viên và 5 điểm đặc trưng khác (cột sáng vàng), trả lời câu hỏi của hướng dẫn viên (dấu ❓) rồi chụp ảnh lưu niệm tại điểm 📷.</p>
+    <p class="muted">Đường phố và các khối nhà xung quanh được dựng từ dữ liệu bản đồ thật (OpenStreetMap).</p>
     <p class="muted">Máy tính: WASD / phím mũi tên để đi, Shift để chạy, kéo chuột để xoay camera, cuộn chuột để zoom, E để tương tác.<br>Điện thoại: joystick bên trái để đi, vuốt màn hình để xoay camera, nút vàng để tương tác.</p>
     <button class="btn" id="startBtn">Bắt đầu khám phá</button>
   </div>
@@ -139,21 +144,22 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xa9d4f5);
-scene.fog = new THREE.Fog(0xa9d4f5, 110, 280);
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 600);
+scene.fog = new THREE.Fog(0xa9d4f5, 160, 430);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.5, 800);
 
-scene.add(new THREE.HemisphereLight(0xdcefff, 0x5a7d3a, 0.95));
+scene.add(new THREE.HemisphereLight(0xe6f2ff, 0x9a9484, 1.25));
 const sun = new THREE.DirectionalLight(0xfff1d6, 1.7);
-sun.position.set(60, 95, 45);
+sun.position.set(-45, 95, 60);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, near: 10, far: 260 });
-scene.add(sun);
+scene.add(sun, sun.target);
 
 // ---------- Helpers ----------
 const mats = new Map();
 const M = (c) => { if (!mats.has(c)) mats.set(c, new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 })); return mats.get(c); };
-function mesh(geo, mat, x, y, z, parent = scene) {
+let defaultParent = scene;
+function mesh(geo, mat, x, y, z, parent = defaultParent) {
   const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z);
   m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
 }
@@ -215,23 +221,134 @@ function resolve(p, r) {
     const dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz), m = c.r + r;
     if (d < m && d > 1e-6) { p.x = c.x + dx / d * m; p.z = c.z + dz / d * m; }
   }
-  p.x = Math.max(-40, Math.min(40, p.x)); p.z = Math.max(-80, Math.min(50, p.z));
+  for (const b of blds) {
+    if (p.x < b.x0 - r || p.x > b.x1 + r || p.z < b.z0 - r || p.z > b.z1 + r) continue;
+    const q = b.p;
+    for (let i = 0, j = q.length - 2; i < q.length; j = i, i += 2) {
+      const ax = q[j], az = q[j + 1], ex = q[i] - ax, ez = q[i + 1] - az, l2 = ex * ex + ez * ez;
+      if (l2 < 1e-6) continue;
+      const t = Math.max(0, Math.min(1, ((p.x - ax) * ex + (p.z - az) * ez) / l2));
+      const dx = p.x - (ax + ex * t), dz = p.z - (az + ez * t), d = Math.hypot(dx, dz);
+      if (d < r && d > 1e-6) { p.x += dx / d * (r - d); p.z += dz / d * (r - d); }
+    }
+  }
+  const cx = p.x - MAP.center[0], cz = p.z - MAP.center[1], cd = Math.hypot(cx, cz);
+  if (cd > 330) { p.x = MAP.center[0] + cx / cd * 330; p.z = MAP.center[1] + cz / cd * 330; }
 }
 
-// ---------- World: ground, roads, plaza ----------
-ground(400, 400, 0x6f9e48, 0, 0, 0);
-ground(400, 8, 0x55595f, 0, 20, 0.02);            // street in front
-ground(8, 400, 0x55595f, -32, 0, 0.02);           // side streets
-ground(8, 400, 0x55595f, 32, 0, 0.02);
-ground(400, 8, 0x55595f, 0, -75, 0.02);           // street behind
-for (let x = -150; x < 150; x += 6) ground(3, 0.3, 0xf2f2f2, x, 20, 0.03); // lane marks
-for (let i = -3; i <= 3; i++) ground(0.8, 7, 0xf2f2f2, i * 1.6, 20, 0.035); // zebra crossing
-ground(28, 28, 0xc4876b, 0, 2, 0.03);             // brick plaza
-ground(5, 24, 0xc4876b, 0, 36, 0.03);             // walkway from the start point
-ground(36, 52, 0x7aa852, 0, -38, 0.025);          // church grounds lawn
+// ---------- World from OpenStreetMap (map-data.js, built by tools/build_map.py) ----------
+const MAP = window.MAP;
+const rand = (a, b) => a + Math.random() * (b - a);
+let seed = 20261111;
+const srand = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+function pointInPoly(x, z, p) {
+  let c = false;
+  for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+    const xi = p[i], zi = p[i + 1], xj = p[j], zj = p[j + 1];
+    if ((zi > z) !== (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi) c = !c;
+  }
+  return c;
+}
+function geoMesh(pos, idx, mat, extra = {}) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  for (const k in extra) g.setAttribute(k, new THREE.Float32BufferAttribute(extra[k], k === 'uv' ? 2 : 3));
+  g.setIndex(idx); if (!extra.normal) g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat); m.receiveShadow = true; scene.add(m); return m;
+}
+const flatMat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, side: THREE.DoubleSide });
+function triangulate(p) {
+  const c = []; for (let i = 0; i < p.length; i += 2) c.push(new THREE.Vector2(p[i], p[i + 1]));
+  try { return THREE.ShapeUtils.triangulateShape(c, []); } catch (e) { return []; }
+}
+function polyMesh(polys, color, y) {
+  const pos = [], idx = [];
+  for (const p of polys) {
+    const base = pos.length / 3;
+    for (let i = 0; i < p.length; i += 2) pos.push(p[i], y, p[i + 1]);
+    for (const f of triangulate(p)) idx.push(base + f[0], base + f[1], base + f[2]);
+  }
+  return geoMesh(pos, idx, flatMat(color));
+}
+function ribbonMesh(lines, y, color) { // lines: [{p:[x,z,...], w}]
+  const pos = [], idx = [];
+  for (const { p, w } of lines) {
+    const h = w / 2;
+    for (let i = 0; i < p.length - 2; i += 2) {
+      const ax = p[i], az = p[i + 1], bx = p[i + 2], bz = p[i + 3], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
+      if (l < 1e-3) continue;
+      const nx = -dz / l * h, nz = dx / l * h, b = pos.length / 3;
+      pos.push(ax + nx, y, az + nz, ax - nx, y, az - nz, bx - nx, y, bz - nz, bx + nx, y, bz + nz);
+      idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+    for (let i = 0; i < p.length; i += 2) { // round joints and caps
+      const b = pos.length / 3; pos.push(p[i], y, p[i + 1]);
+      for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2; pos.push(p[i] + Math.cos(a) * h, y, p[i + 1] + Math.sin(a) * h); }
+      for (let k = 0; k < 10; k++) idx.push(b, b + 1 + k, b + 1 + (k + 1) % 10);
+    }
+  }
+  return geoMesh(pos, idx, flatMat(color));
+}
 
-// ---------- Cathedral ----------
+// ground, parks, streets
+{ const g = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), M(0xcbc4b4)); g.rotation.x = -Math.PI / 2; g.receiveShadow = true; scene.add(g); }
+polyMesh(MAP.parks.map((k) => k.p), 0x7aa852, 0.03);
+const RW = { primary: 16, secondary: 13, tertiary: 10, secondary_link: 8, primary_link: 8, tertiary_link: 7, residential: 7, unclassified: 7, living_street: 6, service: 4.5 };
+const drive = MAP.roads.filter((r) => RW[r.k]).map((r) => ({ p: r.p, w: RW[r.k], k: r.k }));
+ribbonMesh(drive.map((r) => ({ p: r.p, w: r.w + 5 })), 0.06, 0xded9cd);                          // sidewalks
+ribbonMesh(MAP.roads.filter((r) => ['footway', 'steps', 'path'].includes(r.k)).map((r) => ({ p: r.p, w: 2.2 })), 0.09, 0xe9dfc8);
+ribbonMesh(drive, 0.12, 0x50545a);                                                                // asphalt
+ribbonMesh(MAP.roads.filter((r) => r.k === 'pedestrian').map((r) => ({ p: r.p, w: 8 })), 0.15, 0xc9a27e);
+ground(10, 44, 0xc4876b, 0, 76, 0.18);            // red-brick walkway towards the cathedral
+
+// buildings: extruded footprints, one merged mesh for walls and one for roofs
+const blds = [];
+const statuePoi = MAP.pois.find((q) => q.n.includes('Đức Bà Hòa Bình'));
+const SX = statuePoi ? statuePoi.p[0] : 0, SZ = statuePoi ? statuePoi.p[1] : 42;
+(function buildCity() {
+  const PAL = [0xf2e6c8, 0xe9d9b0, 0xdfe3e6, 0xf4efe6, 0xd8c3a5, 0xcfd8dc, 0xe6c9a8, 0xf0d9a0];
+  const wp = [], wu = [], wc = [], wn = [], wi = [], rp = [], rc = [], ri = [], col = new THREE.Color();
+  for (const b of MAP.buildings) {
+    const p = b.p, n = p.length / 2;
+    if (b.id === MAP.cathedral || n < 3) continue;
+    let area = 0, mx = 0, mz = 0;
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; area += p[i * 2] * p[j * 2 + 1] - p[j * 2] * p[i * 2 + 1]; mx += p[i * 2] / n; mz += p[i * 2 + 1] / n; }
+    if (Math.hypot(mx - SX, mz - SZ) < 8) continue;                    // statue pedestal: hand-built below
+    const sgn = area > 0 ? 1 : -1;
+    const h = b.e && Math.abs(area) / 2 < 60 ? 3.5 : b.h;              // small kiosks: keep unknown heights low
+    let c = PAL[(+b.id) % PAL.length];
+    if (h > 45) c = 0x9fbfd4;
+    if (b.n && b.n.includes('Bưu điện Trung tâm')) c = 0xf0c95a;
+    col.set(c);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, ax = p[i * 2], az = p[i * 2 + 1], bx = p[j * 2], bz = p[j * 2 + 1], dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
+      if (l < 0.05) continue;
+      const nx = dz / l * sgn, nz = -dx / l * sgn, base = wp.length / 3, u = Math.max(1, Math.round(l / 3.2)), v = Math.max(1, Math.round(h / 3.6));
+      wp.push(ax, 0, az, bx, 0, bz, bx, h, bz, ax, h, az); wu.push(0, 0, u, 0, u, v, 0, v);
+      for (let k = 0; k < 4; k++) { wn.push(nx, 0, nz); wc.push(col.r, col.g, col.b); }
+      wi.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    const rb = rp.length / 3;
+    for (let i = 0; i < n; i++) { rp.push(p[i * 2], h, p[i * 2 + 1]); rc.push(col.r * 0.72, col.g * 0.72, col.b * 0.72); }
+    for (const f of triangulate(p)) ri.push(rb + f[0], rb + f[1], rb + f[2]);
+    const xs = p.filter((_, i) => i % 2 === 0), zs = p.filter((_, i) => i % 2 === 1);
+    blds.push({ p, n: b.n, x0: Math.min(...xs), x1: Math.max(...xs), z0: Math.min(...zs), z1: Math.max(...zs), cx: mx, cz: mz });
+  }
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 64, 64); g.fillStyle = '#5d7088'; g.fillRect(18, 12, 28, 36);
+  g.fillStyle = '#d9d9d9'; g.fillRect(14, 48, 36, 4);
+  const tex = new THREE.CanvasTexture(c); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const walls = geoMesh(wp, wi, new THREE.MeshStandardMaterial({ map: tex, vertexColors: true, roughness: 0.9, side: THREE.DoubleSide }), { uv: wu, color: wc, normal: wn });
+  walls.castShadow = true;
+  geoMesh(rp, ri, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }), { color: rc });
+})();
+const inBuilding = (x, z) => (Math.abs(x) < 23 && z > -97 && z < 12) ||
+  blds.some((b) => x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1 && pointInPoly(x, z, b.p));
+
+// ---------- Cathedral (hand-built hero model, scaled to the real 34 m x 90 m footprint) ----------
 function buildCathedral() {
+  const grp = new THREE.Group(); grp.scale.set(1.32, 1, 1.7); grp.position.z = 25.5; scene.add(grp); defaultParent = grp;
   const B = (w, h, d, x, y, z) => mesh(new THREE.BoxGeometry(w, h, d), brickMat(Math.max(w, d), h), x, y, z);
   const STONE = 0xe3d6bf, DARK = 0x2a1d17, SLATE = 0x4b5563;
   // nave
@@ -251,11 +368,10 @@ function buildCathedral() {
   box(0.12, 1.1, 0.05, DARK, 0, 24.45, -15.1); box(0.8, 0.12, 0.05, DARK, 0.35, 24, -15.1);
   // rose window
   mesh(new THREE.CircleGeometry(3, 40), M(0x22346a), 0, 14, -15.15);
-  const ring = mesh(new THREE.TorusGeometry(3, 0.35, 10, 40), M(STONE), 0, 14, -15.1);
+  mesh(new THREE.TorusGeometry(3, 0.35, 10, 40), M(STONE), 0, 14, -15.1);
   for (let i = 0; i < 8; i++) { const sp = box(0.12, 5.6, 0.05, STONE, 0, 14, -15.1); sp.rotation.z = i * Math.PI / 8; }
   // doors
-  const door = (x, w, h, z) => { box(w, h, 0.3, DARK, x, h / 2, z);
-    const a = mesh(new THREE.CircleGeometry(w / 2, 20, 0, Math.PI), M(DARK), x, h, z + 0.16); };
+  const door = (x, w, h, z) => { box(w, h, 0.3, DARK, x, h / 2, z); mesh(new THREE.CircleGeometry(w / 2, 20, 0, Math.PI), M(DARK), x, h, z + 0.16); };
   door(0, 3.2, 6, -15.1);
   // towers
   for (const s of [-1, 1]) {
@@ -270,77 +386,91 @@ function buildCathedral() {
     box(0.3, 2.4, 0.3, 0x8a7a55, x, 58.2, -18.5); box(1.4, 0.3, 0.3, 0x8a7a55, x, 58.6, -18.5);
   }
   for (const y of [8, 19]) box(26.4, 0.5, 0.4, STONE, 0, y, -14.85);
-  addBox(-11, 11, -58, -18); circlesC.push({ x: 0, z: -58, r: 10 }); addBox(-13, 13, -22, -15);
+  defaultParent = scene;
+  addBox(-14.6, 14.6, -90, -5); addBox(-17.2, 17.2, -12, 0);
 }
 buildCathedral();
+ground(40, 104, 0x7aa852, 0, -42, 0.2);           // lawn inside the fence
+ground(8, 10, 0xc4876b, 0, 5, 0.22);              // path from the gate to the main door
 
 // ---------- Fence around the grounds, with a gate in front ----------
-function buildFence() {
-  const IRON = 0x232a33, PILLAR = 0xd9c7a8;
-  const rail = (x0, z0, x1, z1) => {
-    const len = Math.hypot(x1 - x0, z1 - z0), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, ang = Math.atan2(x1 - x0, z1 - z0);
-    for (const y of [0.4, 1.5]) { const r = box(0.08, 0.08, len, IRON, cx, y, cz); r.rotation.y = ang; }
-    const n = Math.floor(len / 0.5);
-    for (let i = 0; i <= n; i++) { const t = i / n; box(0.05, 1.6, 0.05, IRON, x0 + (x1 - x0) * t, 0.8, z0 + (z1 - z0) * t); }
-  };
-  rail(-18, -12, -3, -12); rail(3, -12, 18, -12);
-  rail(-18, -12, -18, -64); rail(18, -12, 18, -64); rail(-18, -64, 18, -64);
-  for (const [x, z] of [[-18, -12], [18, -12], [-18, -64], [18, -64], [-3, -12], [3, -12]]) box(0.9, 2.4, 0.9, PILLAR, x, 1.2, z);
-  addBox(-18.3, -3, -12.3, -11.7); addBox(3, 18.3, -12.3, -11.7);
-  addBox(-18.3, -17.7, -64, -12); addBox(17.7, 18.3, -64, -12); addBox(-18.3, 18.3, -64.3, -63.7);
-}
-buildFence();
-
-// ---------- Statue of Our Lady of Peace + flower bed ----------
-(() => {
-  const z = 5;
-  mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.35, 40), M(0x4f8a3a), 0, 0.17, z);
-  const fl = [0xe23b3b, 0xffd23f, 0xff8fb1, 0xffffff];
-  for (let i = 0; i < 70; i++) {
-    const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 2.3;
-    mesh(new THREE.SphereGeometry(0.22, 6, 5), M(fl[i % 4]), Math.cos(a) * r, 0.45, z + Math.sin(a) * r);
+(function buildFence() {
+  const IRON = 0x232a33, PILLAR = 0xd9c7a8, FX = 21, ZF = 10, ZB = -94, GATE = 4;
+  const segs = [[-FX, ZF, -GATE, ZF], [GATE, ZF, FX, ZF], [-FX, ZF, -FX, ZB], [FX, ZF, FX, ZB], [-FX, ZB, FX, ZB]];
+  const posts = [];
+  for (const [x0, z0, x1, z1] of segs) {
+    const len = Math.hypot(x1 - x0, z1 - z0), ang = Math.atan2(x1 - x0, z1 - z0);
+    for (const y of [0.4, 1.5]) { const r = box(0.08, 0.08, len, IRON, (x0 + x1) / 2, y, (z0 + z1) / 2); r.rotation.y = ang; }
+    const n = Math.floor(len / 0.6);
+    for (let i = 0; i <= n; i++) posts.push([x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n]);
+    const t = 0.3; addBox(Math.min(x0, x1) - t, Math.max(x0, x1) + t, Math.min(z0, z1) - t, Math.max(z0, z1) + t);
   }
-  box(1.8, 3, 1.8, 0xd9c7a8, 0, 1.8, z);
-  mesh(new THREE.CylinderGeometry(0.45, 0.85, 3.2, 16), M(0xf3f1ea), 0, 4.9, z);
-  mesh(new THREE.SphereGeometry(0.42, 16, 12), M(0xf3f1ea), 0, 6.85, z);
-  circlesC.push({ x: 0, z, r: 4.6 });
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.05, 1.6, 0.05), M(IRON), posts.length), d = new THREE.Object3D();
+  posts.forEach(([x, z], i) => { d.position.set(x, 0.8, z); d.updateMatrix(); im.setMatrixAt(i, d.matrix); });
+  scene.add(im);
+  for (const [x, z] of [[-FX, ZF], [FX, ZF], [-FX, ZB], [FX, ZB], [-GATE, ZF], [GATE, ZF]]) box(0.9, 2.4, 0.9, PILLAR, x, 1.2, z);
 })();
 
-// ---------- City blocks + trees ----------
-const rand = (a, b) => a + Math.random() * (b - a);
-const bColors = [0xe8e2d0, 0xc9d6df, 0xf1c27d, 0xd7ccc8, 0xb0bec5, 0xffe0b2, 0xcfd8dc];
-for (let x = -140; x <= 140; x += 16) for (let z = -140; z <= 140; z += 16) {
-  const inside = Math.abs(x) < 42 && z > -86 && z < 30;
-  if (inside || Math.abs(x - 32) < 8 || Math.abs(x + 32) < 8 || Math.abs(z - 20) < 8 || Math.abs(z + 75) < 8) continue;
-  const h = rand(8, 34);
-  box(rand(9, 13), h, rand(9, 13), bColors[(Math.random() * bColors.length) | 0], x, h / 2, z);
-}
-function palm(x, z) {
-  const h = rand(6, 9);
-  const t = mesh(new THREE.CylinderGeometry(0.18, 0.3, h, 6), M(0x8d6e4e), x, h / 2, z); t.rotation.z = rand(-0.08, 0.08);
-  for (let i = 0; i < 7; i++) {
-    const leaf = box(0.25, 0.08, 3.4, 0x3f8f3a, x, h, z);
-    leaf.rotation.y = i / 7 * Math.PI * 2; leaf.rotation.x = 0.45;
-    leaf.position.x += Math.sin(leaf.rotation.y) * 1.4; leaf.position.z += Math.cos(leaf.rotation.y) * 1.4; leaf.position.y -= 0.5;
+// ---------- Statue of Our Lady of Peace + flower bed (position from OpenStreetMap) ----------
+(() => {
+  mesh(new THREE.CylinderGeometry(4.5, 4.5, 0.5, 40), M(0x4f8a3a), SX, 0.25, SZ);
+  const fl = [0xe23b3b, 0xffd23f, 0xff8fb1, 0xffffff];
+  for (let i = 0; i < 70; i++) {
+    const a = srand() * Math.PI * 2, r = 2 + srand() * 2.3;
+    mesh(new THREE.SphereGeometry(0.22, 6, 5), M(fl[i % 4]), SX + Math.cos(a) * r, 0.6, SZ + Math.sin(a) * r);
   }
-  circlesC.push({ x, z, r: 0.4 });
-}
-function roundTree(x, z) {
-  const h = rand(2.5, 4);
-  mesh(new THREE.CylinderGeometry(0.25, 0.35, h, 6), M(0x6d4c35), x, h / 2, z);
-  const s = rand(2.2, 3.4);
-  mesh(new THREE.IcosahedronGeometry(s, 1), M([0x2f7d32, 0x3a8f3e, 0x2e6b2f][(Math.random() * 3) | 0]), x, h + s * 0.8, z);
-  circlesC.push({ x, z, r: 0.5 });
-}
-let planted = 0;
-while (planted < 70) {
-  const x = rand(-38, 38), z = rand(-80, 48);
-  const blocked = (Math.abs(x) < 20 && z > -66 && z < 18) || Math.abs(z - 20) < 6 || Math.abs(Math.abs(x) - 32) < 6 ||
-    Math.abs(z + 75) < 6 || (Math.abs(x) < 5 && z > 18);
-  if (blocked) continue;
-  (Math.random() < 0.55 ? palm : roundTree)(x, z); planted++;
-}
-for (const [x, z] of [[-15, -30], [15, -30], [-15, -48], [15, -48]]) palm(x, z);
+  box(1.8, 3, 1.8, 0xd9c7a8, SX, 1.9, SZ);
+  mesh(new THREE.CylinderGeometry(0.45, 0.85, 3.2, 16), M(0xf3f1ea), SX, 5, SZ);
+  mesh(new THREE.SphereGeometry(0.42, 16, 12), M(0xf3f1ea), SX, 6.95, SZ);
+  circlesC.push({ x: SX, z: SZ, r: 4.6 });
+})();
+
+// ---------- Trees: mapped trees + street trees along real roads + park trees ----------
+(function plantTrees() {
+  const segs = [];
+  for (const r of drive) for (let i = 0; i < r.p.length - 2; i += 2) segs.push([r.p[i], r.p[i + 1], r.p[i + 2], r.p[i + 3], r.w / 2]);
+  const onRoad = (x, z, pad) => segs.some(([ax, az, bx, bz, h]) => {
+    const ex = bx - ax, ez = bz - az, l2 = ex * ex + ez * ez || 1, t = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2));
+    return Math.hypot(x - ax - ex * t, z - az - ez * t) < h + pad;
+  });
+  const spots = [], grid = new Set();
+  const tryAdd = (x, z) => {
+    const key = Math.round(x / 7) + ',' + Math.round(z / 7);
+    if (grid.has(key) || Math.hypot(x - MAP.center[0], z - MAP.center[1]) > 380) return;
+    if ((Math.abs(x) < 14 && z > 0 && z < 100) || Math.hypot(x - SX, z - SZ) < 6) return;   // keep the view of the facade open
+    if (inBuilding(x, z) || onRoad(x, z, 1.2)) return;
+    grid.add(key); spots.push([x, z]);
+  };
+  for (let i = 0; i < MAP.trees.length; i += 2) tryAdd(MAP.trees[i], MAP.trees[i + 1]);
+  for (const r of drive) {
+    if (r.w < 7) continue;
+    let carry = 0;
+    for (let i = 0; i < r.p.length - 2; i += 2) {
+      const ax = r.p[i], az = r.p[i + 1], dx = r.p[i + 2] - ax, dz = r.p[i + 3] - az, l = Math.hypot(dx, dz);
+      if (l < 1e-3) continue;
+      for (let d = carry; d < l; d += 13) for (const s of [-1, 1])
+        tryAdd(ax + dx / l * d - dz / l * s * (r.w / 2 + 2.6), az + dz / l * d + dx / l * s * (r.w / 2 + 2.6));
+      carry = (carry - l) % 13; if (carry < 0) carry += 13;
+    }
+  }
+  for (const k of MAP.parks) {
+    const xs = k.p.filter((_, i) => i % 2 === 0), zs = k.p.filter((_, i) => i % 2 === 1);
+    for (let x = Math.min(...xs); x < Math.max(...xs); x += 11) for (let z = Math.min(...zs); z < Math.max(...zs); z += 11) {
+      const px = x + srand() * 8, pz = z + srand() * 8; if (pointInPoly(px, pz, k.p)) tryAdd(px, pz);
+    }
+  }
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.28, 0.42, 1, 6).translate(0, 0.5, 0), M(0x6d4c35), spots.length);
+  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ roughness: 1 }), spots.length);
+  const d = new THREE.Object3D(), greens = [0x2f7d32, 0x3a8f3e, 0x2e6b2f, 0x4c9a45], col = new THREE.Color();
+  spots.forEach(([x, z], i) => {
+    const h = 5 + srand() * 5, s = 2.6 + srand() * 2;
+    d.position.set(x, 0, z); d.scale.set(1, h, 1); d.rotation.set(0, 0, 0); d.updateMatrix(); trunk.setMatrixAt(i, d.matrix);
+    d.position.set(x, h + s * 0.6, z); d.scale.set(s, s * 0.8, s); d.rotation.y = srand() * 6; d.updateMatrix(); crown.setMatrixAt(i, d.matrix);
+    crown.setColorAt(i, col.set(greens[i % 4]));
+    circlesC.push({ x, z, r: 0.45 });
+  });
+  trunk.castShadow = crown.castShadow = true; scene.add(trunk, crown);
+})();
 
 // ---------- Characters ----------
 function person(shirt, pants = 0x2b3a55, skin = 0xe0b48f) {
@@ -354,18 +484,19 @@ function person(shirt, pants = 0x2b3a55, skin = 0xe0b48f) {
 }
 const player = person(0x2f6fed, 0x37474f);
 box(0.45, 0.55, 0.22, 0x5d4037, 0, 1.3, -0.27, player); // backpack
-player.position.set(0, 0, 38);
+player.position.set(0, 0, 86);
 
+const GUIDE = { x: 9, z: 30 };
 const guide = person(0xffc542, 0x1e2a3a);
-guide.position.set(8, 0, -2); guide.rotation.y = -Math.PI / 2;
+guide.position.set(GUIDE.x, 0, GUIDE.z); guide.rotation.y = -Math.PI / 2;
 const guideTag = labelSprite('❓');
-guideTag.position.set(8, 2.8, -2);
-circlesC.push({ x: 8, z: -2, r: 0.5 });
+guideTag.position.set(GUIDE.x, 2.8, GUIDE.z);
+circlesC.push({ x: GUIDE.x, z: GUIDE.z, r: 0.5 });
 
 const npcs = [];
 const shirts = [0xe53935, 0xffffff, 0x43a047, 0x8e24aa, 0xfb8c00, 0x00897b, 0x6d4c41, 0xf06292];
 function npcTarget() {
-  for (;;) { const x = rand(-36, 36), z = rand(-9, 46); if (Math.hypot(x, z - 5) > 6) return new THREE.Vector3(x, 0, z); }
+  for (;;) { const x = rand(-48, 48), z = rand(14, 96); if (Math.hypot(x - SX, z - SZ) > 6 && !inBuilding(x, z)) return new THREE.Vector3(x, 0, z); }
 }
 for (let i = 0; i < 24; i++) {
   const g = person(shirts[i % shirts.length], [0x263238, 0x3e2723, 0x1a237e][i % 3]);
@@ -375,16 +506,18 @@ for (let i = 0; i < 24; i++) {
 
 // ---------- Points of interest ----------
 const SPOTS = [
-  { name: 'Cổng vào khuôn viên', x: 0, z: -10.5,
+  { name: 'Cổng vào khuôn viên', x: 0, z: 13,
     fact: 'Đây rồi! Khuôn viên nhà thờ có hàng rào sắt bao quanh, lối vào chính nằm thẳng trục với tượng Đức Mẹ. Bạn vừa tìm ra "cái cổng" mà nhiều người dân Sài Gòn chỉ đi vòng bên ngoài.' },
-  { name: 'Tượng Đức Mẹ Hòa Bình', x: 0, z: 11.5,
+  { name: 'Tượng Đức Mẹ Hòa Bình', x: SX, z: SZ + 8,
     fact: 'Tượng Đức Mẹ Hòa Bình bằng đá cẩm thạch trắng được tạc tại Ý và dựng ở quảng trường trước nhà thờ năm 1959.' },
-  { name: 'Gạch không tô trát', x: -15.5, z: -13.5,
+  { name: 'Gạch không tô trát', x: -19, z: 4,
     fact: 'Mặt ngoài nhà thờ để lộ gạch đỏ, không tô vữa. Gạch được đưa sang từ Marseille (Pháp) và vẫn giữ màu đỏ tươi sau hơn 140 năm.' },
-  { name: 'Hai tháp chuông', x: 15.5, z: -13.5,
+  { name: 'Hai tháp chuông', x: 19, z: 4,
     fact: 'Hai tháp chuông cao khoảng 57 m. Năm 1895 hai tháp được gắn thêm mái chóp và thánh giá, nâng tổng chiều cao lên khoảng 60 m.' },
-  { name: 'Cửa sổ hoa hồng', x: 4.5, z: -13.5,
+  { name: 'Cửa sổ hoa hồng', x: 9, z: 4,
     fact: 'Nhà thờ do kiến trúc sư J. Bourard thiết kế, khởi công năm 1877 và khánh thành năm 1880. Ô cửa sổ tròn "hoa hồng" là chi tiết quen thuộc của kiến trúc nhà thờ phương Tây.' },
+  { name: 'Bưu điện Trung tâm Sài Gòn', x: 58, z: 22,
+    fact: 'Tòa nhà màu vàng bên phải nhà thờ là Bưu điện Trung tâm Sài Gòn, xây trong giai đoạn 1886–1891. Trong game, vị trí và mặt bằng tòa nhà lấy từ bản đồ thật; hình khối mới chỉ là bản dựng đơn giản.' },
 ];
 for (const s of SPOTS) {
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 12, 20, 1, true),
@@ -394,7 +527,7 @@ for (const s of SPOTS) {
   ringM.rotation.x = -Math.PI / 2; ringM.position.set(s.x, 0.06, s.z); scene.add(ringM);
   Object.assign(s, { beam, ring: ringM, found: false });
 }
-const PHOTO = { x: 0, z: 30 };
+const PHOTO = { x: 0, z: 68 };
 {
   const r = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.5, 32), new THREE.MeshBasicMaterial({ color: 0x4fc3f7 }));
   r.rotation.x = -Math.PI / 2; r.position.set(PHOTO.x, 0.06, PHOTO.z); scene.add(r);
@@ -472,8 +605,8 @@ function openQuiz() {
 }
 
 function takePhoto() {
-  player.rotation.y = Math.PI; cam.yaw = 0; cam.pitch = 0.15; cam.dist = 10;
-  PHOTO.tag.visible = false; updateCamera(); camera.lookAt(0, 20, -18); renderer.render(scene, camera); PHOTO.tag.visible = true;
+  player.rotation.y = Math.PI; cam.yaw = 0; cam.pitch = 0.12; cam.dist = 9;
+  PHOTO.tag.visible = false; updateCamera(); camera.lookAt(0, 24, 0); renderer.render(scene, camera); PHOTO.tag.visible = true;
   const url = renderer.domElement.toDataURL('image/jpeg', 0.9);
   const f = $('flash'); f.style.transition = 'none'; f.style.opacity = '1';
   requestAnimationFrame(() => { f.style.transition = 'opacity .5s'; f.style.opacity = '0'; });
@@ -527,7 +660,7 @@ function interact() {
 }
 
 $('startBtn').addEventListener('click', () => { closeCard(); state.playing = true;
-  toast('<b>Gợi ý:</b> Đi theo lối gạch đỏ về phía nhà thờ. Cột sáng vàng là chi tiết cần tìm, còn cổng vào khuôn viên nằm phía sau tượng Đức Mẹ.', 8000); });
+  toast('<b>Gợi ý:</b> Đi theo lối gạch đỏ về phía nhà thờ. Cột sáng vàng là điểm cần tìm, còn cổng vào khuôn viên nằm phía sau tượng Đức Mẹ. Bưu điện màu vàng ở bên phải.', 8000); });
 
 // ---------- Camera ----------
 const camTarget = new THREE.Vector3();
@@ -539,28 +672,51 @@ function updateCamera() {
   camera.lookAt(camTarget);
 }
 
-// ---------- Minimap ----------
+// ---------- Minimap (pre-rendered once from the map data) ----------
 const mm = $('minimap').getContext('2d');
+const MM = { half: 420, s: 2 };
+const mapImg = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = MM.half * 2 * MM.s; const g = c.getContext('2d');
+  g.fillStyle = '#cbc4b4'; g.fillRect(0, 0, c.width, c.height);
+  g.setTransform(MM.s, 0, 0, MM.s, MM.half * MM.s, MM.half * MM.s);
+  const path = (p, close) => { g.beginPath(); for (let i = 0; i < p.length; i += 2) g[i ? 'lineTo' : 'moveTo'](p[i], p[i + 1]); if (close) g.closePath(); };
+  g.fillStyle = '#7aa852'; for (const k of MAP.parks) { path(k.p, true); g.fill(); }
+  g.lineCap = g.lineJoin = 'round';
+  g.strokeStyle = '#ffffff'; for (const r of drive) { g.lineWidth = r.w; path(r.p); g.stroke(); }
+  g.fillStyle = '#a89f8f'; for (const b of blds) { path(b.p, true); g.fill(); }
+  const cat = MAP.buildings.find((b) => b.id === MAP.cathedral); g.fillStyle = '#9c4a33'; path(cat.p, true); g.fill();
+  return c;
+})();
 function drawMinimap() {
-  const W = 240, R = 120, s = R / 45, px = player.position.x, pz = player.position.z;
+  const W = 240, R = 120, s = MM.s, px = player.position.x, pz = player.position.z;
   const X = (x) => R + (x - px) * s, Z = (z) => R + (z - pz) * s;
   mm.save(); mm.clearRect(0, 0, W, W);
   mm.beginPath(); mm.arc(R, R, R, 0, Math.PI * 2); mm.clip();
-  mm.fillStyle = '#6f9e48'; mm.fillRect(0, 0, W, W);
-  mm.fillStyle = '#d0d4da';
-  mm.fillRect(0, Z(16), W, 8 * s); mm.fillRect(0, Z(-79), W, 8 * s);
-  mm.fillRect(X(-36), 0, 8 * s, W); mm.fillRect(X(28), 0, 8 * s, W);
-  mm.fillStyle = '#c4876b'; mm.fillRect(X(-14), Z(-12), 28 * s, 28 * s);
-  mm.strokeStyle = '#1b1f24'; mm.lineWidth = 2; mm.strokeRect(X(-18), Z(-64), 36 * s, 52 * s);
-  mm.fillStyle = '#9c4a33'; mm.fillRect(X(-11), Z(-58), 22 * s, 40 * s); mm.fillRect(X(-13), Z(-22), 26 * s, 7 * s);
-  mm.beginPath(); mm.arc(X(0), Z(-58), 10 * s, 0, Math.PI * 2); mm.fill();
-  for (const sp of SPOTS) { mm.fillStyle = sp.found ? '#4ade80' : '#ffd34d'; mm.beginPath(); mm.arc(X(sp.x), Z(sp.z), 5, 0, Math.PI * 2); mm.fill(); }
-  mm.fillStyle = '#4fc3f7'; mm.beginPath(); mm.arc(X(PHOTO.x), Z(PHOTO.z), 5, 0, Math.PI * 2); mm.fill();
-  mm.fillStyle = '#ffffff'; mm.beginPath(); mm.arc(X(8), Z(-2), 5, 0, Math.PI * 2); mm.fill();
+  mm.fillStyle = '#cbc4b4'; mm.fillRect(0, 0, W, W);
+  mm.drawImage(mapImg, (px + MM.half) * s - R, (pz + MM.half) * s - R, W, W, 0, 0, W, W);
+  for (const sp of SPOTS) { mm.fillStyle = sp.found ? '#22c55e' : '#f5a300'; mm.beginPath(); mm.arc(X(sp.x), Z(sp.z), 6, 0, Math.PI * 2); mm.fill(); }
+  mm.fillStyle = '#0ea5e9'; mm.beginPath(); mm.arc(X(PHOTO.x), Z(PHOTO.z), 6, 0, Math.PI * 2); mm.fill();
+  mm.fillStyle = '#7c3aed'; mm.beginPath(); mm.arc(X(GUIDE.x), Z(GUIDE.z), 6, 0, Math.PI * 2); mm.fill();
   mm.translate(R, R); mm.rotate(Math.PI - player.rotation.y);
-  mm.fillStyle = '#ff3d3d'; mm.beginPath(); mm.moveTo(0, -11); mm.lineTo(8, 8); mm.lineTo(0, 4); mm.lineTo(-8, 8); mm.closePath(); mm.fill();
+  mm.fillStyle = '#ff3d3d'; mm.strokeStyle = '#fff'; mm.lineWidth = 2;
+  mm.beginPath(); mm.moveTo(0, -12); mm.lineTo(9, 9); mm.lineTo(0, 4); mm.lineTo(-9, 9); mm.closePath(); mm.fill(); mm.stroke();
   mm.restore();
-  mm.fillStyle = '#fff'; mm.font = 'bold 22px sans-serif'; mm.textAlign = 'center'; mm.fillText('N', R, 24);
+  mm.fillStyle = '#b91c1c'; mm.font = 'bold 22px sans-serif'; mm.textAlign = 'center'; mm.textBaseline = 'middle';
+  mm.fillText('N', R + MAP.north[0] * (R - 16), R + MAP.north[1] * (R - 16));
+}
+
+// name of the nearest mapped landmark, shown in the location card
+let placeT = 0;
+function updatePlace(dt) {
+  placeT -= dt; if (placeT > 0) return; placeT = 0.5;
+  const p = player.position; let best = 'Công xã Paris', bd = 45;
+  if (Math.abs(p.x) < 30 && p.z > -100 && p.z < 30) best = 'Nhà thờ Đức Bà';
+  else for (const b of blds) {
+    if (!b.n) continue;
+    const d = Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.z0 - p.z, 0, p.z - b.z1));
+    if (d < bd) { bd = d; best = b.n; }
+  }
+  $('place').textContent = '📍 ' + best;
 }
 
 // ---------- Loop ----------
@@ -613,7 +769,7 @@ function tick() {
     }
   }
   guideTag.position.y = 2.8 + Math.sin(t * 2) * 0.12;
-  nearby = Math.hypot(p.x - 8, p.z + 2) < 3.2 ? 'guide' : Math.hypot(p.x - PHOTO.x, p.z - PHOTO.z) < 2.2 ? 'photo' : null;
+  nearby = Math.hypot(p.x - GUIDE.x, p.z - GUIDE.z) < 3.2 ? 'guide' : Math.hypot(p.x - PHOTO.x, p.z - PHOTO.z) < 2.2 ? 'photo' : null;
   const pr = $('prompt');
   if (nearby && state.playing && !state.modal) {
     pr.style.display = 'block';
@@ -623,6 +779,8 @@ function tick() {
   const hh = String(Math.floor(gameMin / 60) % 24).padStart(2, '0'), mi = String(Math.floor(gameMin % 60)).padStart(2, '0');
   $('clock').textContent = `${hh}:${mi}`;
 
+  sun.position.set(p.x - 45, 95, p.z + 60); sun.target.position.set(p.x, 0, p.z);
+  updatePlace(dt);
   updateCamera();
   renderer.render(scene, camera);
   drawMinimap();
@@ -633,7 +791,7 @@ addEventListener('resize', () => {
 });
 player.rotation.y = Math.PI;
 refreshQuests();
-window.__game = { player, state, SPOTS }; // debug/test hook
+window.__game = { player, state, SPOTS, PHOTO, GUIDE, cam }; // debug/test hook
 tick();
 </script>
 </body>
